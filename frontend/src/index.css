@@ -810,6 +810,7 @@
 
 .step-content {
   flex: 1;
+  min-width: 0;
 }
 
 .step-name {
@@ -822,6 +823,8 @@
 .step-desc {
   font-size: 12px;
   color: var(--text-muted);
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .step-tag-active {
@@ -830,8 +833,10 @@
   text-transform: uppercase;
   color: var(--primary-cobalt);
   background: rgba(0, 71, 171, 0.12);
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .step-tag-done {
@@ -839,8 +844,10 @@
   font-weight: 600;
   color: var(--sev-clean);
   background: var(--sev-clean-bg);
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .processing-actions {
