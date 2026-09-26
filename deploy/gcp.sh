@@ -3,12 +3,13 @@
 #   bash deploy/gcp.sh setup    # APIs, registry, bucket, secrets, IAM, starts the image build
 #   bash deploy/gcp.sh status   # shows the latest Cloud Build result
 #   bash deploy/gcp.sh deploy   # deploys the worker job and the API + studio service
+#   bash deploy/gcp.sh cors     # updates API + bucket CORS without rebuilding images
 # Every step is safe to re-run. Secrets are read from .env.production/.env.development
 # and are never printed.
 set -euo pipefail
 # Git Bash rewrites arguments that look like POSIX paths (/data -> C:/Program Files/Git/data).
 # Exclude only the flags carrying container paths; gcloud's own wrapper still needs conversion.
-export MSYS2_ARG_CONV_EXCL="--add-volume;--add-volume-mount;--set-env-vars"
+export MSYS2_ARG_CONV_EXCL="--add-volume;--add-volume-mount;--set-env-vars;--update-env-vars"
 
 PROJECT_ID=shruti-509808
 PROJECT_NUMBER=624531715077
@@ -24,6 +25,9 @@ JOB_TIMEOUT=10800
 TASK_TIMEOUT=$((JOB_TIMEOUT + 600))
 APP_URL=https://$SERVICE-$PROJECT_NUMBER.$REGION.run.app
 VOLUME="name=data,type=cloud-storage,bucket=$BUCKET,mount-options=uid=10001;gid=10001"
+# Both public frontend domains must be accepted by the API and the direct-upload
+# bucket. Keep the existing local development origins unless overridden in env.
+DEFAULT_FRONTEND_ORIGINS=https://shruti.orbionixtech.com,https://shruti-ets.pages.dev,http://localhost:5173,http://127.0.0.1:5173
 
 cd "$(dirname "$0")/.."
 gcloud config set project "$PROJECT_ID" --quiet >/dev/null
@@ -75,6 +79,29 @@ set_cors() {  # origins...
   gcloud storage buckets update "gs://$BUCKET" --cors-file="${TMPDIR:-/tmp}/shruti-cors.json" --quiet >/dev/null
 }
 
+collect_origins() {
+  ORIGINS=("$APP_URL")
+  local actual origin existing
+  local -a extra=()
+  actual=$(gcloud run services describe "$SERVICE" --region="$REGION" --format="value(status.url)" 2>/dev/null || true)
+  [ -n "$actual" ] && [ "$actual" != "$APP_URL" ] && ORIGINS+=("$actual")
+  IFS=',' read -ra extra <<< "${FRONTEND_ORIGINS:-$DEFAULT_FRONTEND_ORIGINS}"
+  for origin in "${extra[@]}"; do
+    origin=${origin//[[:space:]]/}
+    origin=${origin%/}
+    [ -n "$origin" ] || continue
+    [[ $origin =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || {
+      echo "Invalid FRONTEND_ORIGINS entry: $origin (use an origin without a path)" >&2
+      exit 1
+    }
+    for existing in "${ORIGINS[@]}"; do [ "$existing" != "$origin" ] || continue 2; done
+    ORIGINS+=("$origin")
+  done
+  local quoted
+  quoted=$(printf '"%s",' "${ORIGINS[@]}")
+  ORIGINS_JSON="[${quoted%,}]"
+}
+
 setup() {
   load_env
   echo "[1/6] Enabling APIs (1-2 min)"
@@ -89,7 +116,8 @@ setup() {
   echo "[3/6] Media bucket"
   gcloud storage buckets describe "gs://$BUCKET" >/dev/null 2>&1 ||
     gcloud storage buckets create "gs://$BUCKET" --location="$REGION" --uniform-bucket-level-access
-  set_cors "$APP_URL"
+  collect_origins
+  set_cors "${ORIGINS[@]}"
 
   echo "[4/6] Secrets"
   put_secret shruti-db-url "$SHRUTI_DB_URL"
@@ -139,22 +167,27 @@ deploy() {
     --set-secrets=SHRUTI_DB_URL=shruti-db-url:latest,SHRUTI_REDIS_URL=shruti-redis-url:latest,GROQ_API_KEY=shruti-groq-api-key:latest,SHRUTI_HF_TOKEN=shruti-hf-token:latest
 
   echo "[2/3] API + studio service"
-  # Browser origins allowed to call the API and upload to the bucket: this service's
-  # URLs plus any separately hosted frontend (FRONTEND_ORIGINS, comma-separated).
-  local origins=("$APP_URL") actual
-  actual=$(gcloud run services describe "$SERVICE" --region="$REGION" --format="value(status.url)" 2>/dev/null || true)
-  [ -n "$actual" ] && [ "$actual" != "$APP_URL" ] && origins+=("$actual")
-  IFS=',' read -ra extra <<< "${FRONTEND_ORIGINS:-}"
-  for origin in "${extra[@]}"; do [ -n "$origin" ] && origins+=("${origin%/}"); done
-  set_cors "${origins[@]}"
-  deploy_service "[$(printf '"%s",' "${origins[@]}" | sed 's/,$//')]"
-  echo "  allowed origins: ${origins[*]}"
+  collect_origins
+  set_cors "${ORIGINS[@]}"
+  deploy_service "$ORIGINS_JSON"
+  echo "  allowed origins: ${ORIGINS[*]}"
 
   echo "[3/3] Readiness"
   sleep 5
   curl -s "$APP_URL/api/readiness"; echo
   echo
   echo "Open the studio: $APP_URL"
+}
+
+cors() {
+  # A CORS correction needs no secrets, build, or worker deployment.
+  read_env_file .env.development
+  read_env_file .env.production
+  collect_origins
+  set_cors "${ORIGINS[@]}"
+  gcloud run services update "$SERVICE" --region="$REGION" \
+    --update-env-vars="^@^SHRUTI_ALLOWED_ORIGINS=$ORIGINS_JSON"
+  echo "  allowed origins: ${ORIGINS[*]}"
 }
 
 deploy_service() {  # allowed-origins JSON
@@ -170,5 +203,6 @@ case "${1:-}" in
   setup) setup ;;
   status) status ;;
   deploy) deploy ;;
-  *) echo "Usage: bash deploy/gcp.sh setup|status|deploy"; exit 1 ;;
+  cors) cors ;;
+  *) echo "Usage: bash deploy/gcp.sh setup|status|deploy|cors"; exit 1 ;;
 esac

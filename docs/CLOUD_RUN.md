@@ -12,9 +12,14 @@ reading secrets from `.env.production`. What it creates:
 | Storage | private bucket `<project>-shruti-media`, CORS for the allowed frontend origins |
 | Secrets | `shruti-db-url`, `shruti-redis-url`, `shruti-groq-api-key`, `shruti-hf-token`, `shruti-upload-key` |
 | Images | built by Cloud Build (`cloudbuild.yaml`) into Artifact Registry `shruti` |
-| Frontend origins | `FRONTEND_ORIGINS=https://a.pages.dev,http://localhost:5173 bash deploy/gcp.sh deploy` |
+| Frontend origins | Both production domains and localhost are included by default; override with comma-separated `FRONTEND_ORIGINS` in `.env.production` |
 
 The frontend is deployed separately (Cloudflare Pages); the API image contains no frontend.
+If a newly deployed frontend reports a CORS error, run `bash deploy/gcp.sh cors`
+from the repository root. It updates both the Cloud Run API's
+`SHRUTI_ALLOWED_ORIGINS` and the Cloud Storage upload bucket's CORS policy;
+it does not rebuild images or redeploy the worker. Then check a browser upload
+from each frontend origin.
 The PANNs checkpoint is kept in the bucket at `models/panns/Cnn14_DecisionLevelMax.pth`
 so workers do not depend on Zenodo at run time.
 

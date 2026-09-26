@@ -75,6 +75,7 @@
   position: sticky;
   top: 0;
   z-index: 100;
+  background: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
@@ -84,9 +85,7 @@
   justify-content: space-between;
   min-height: 64px;
   padding: 14px 24px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: #ffffff;
   color: var(--text-primary);
   border-bottom: 1px solid #e2e8f0;
   gap: 16px;

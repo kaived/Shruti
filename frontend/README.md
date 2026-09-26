@@ -17,7 +17,7 @@ VITE_API_BASE_URL=https://shruti-api-624531715077.asia-south1.run.app
 - Origin only — no `/api` and no trailing slash. The API version lives in [`src/shared/config/index.ts`](src/shared/config/index.ts) (`API_PREFIX = /api/v1`); all calls go through `apiPath()`.
 - Empty value = same origin; in `npm run dev` the Vite proxy forwards `/api` to `127.0.0.1:8000`.
 - Never put secrets in `VITE_` variables — they are embedded in the public bundle. The upload key is typed by the user and checked by the API.
-- The API must list this site's origin in `SHRUTI_ALLOWED_ORIGINS` (`FRONTEND_ORIGINS=... bash deploy/gcp.sh deploy`).
+- The API **and** Cloud Storage upload bucket must allow this site's exact origin. The deployment script includes `https://shruti.orbionixtech.com` and `https://shruti-ets.pages.dev` by default. After changing domains, set `FRONTEND_ORIGINS` and run `bash deploy/gcp.sh cors` to update both allowlists without rebuilding the API or worker.
 
 ## Develop and build
 
