@@ -13,8 +13,31 @@ dependencies = [
   "redis>=5,<7",
   "rq>=2,<3",
   "groq>=1.7.0",
-  "scenedetect[opencv]>=0.7.1",
+  "scenedetect>=0.7.1",
+  "google-cloud-storage>=3,<4",
+  "google-auth>=2.30,<3",
 ]
+
+[project.optional-dependencies]
+inference = [
+  "pyannote-audio>=4.0,<5",
+  "silero-vad>=6.2,<7",
+  "onnxruntime>=1.20,<2",
+  "panns-inference>=0.1,<0.2",
+  "stable-ts>=2.19,<3",
+  "scipy>=1.15,<2",
+  "torch>=2.11,<2.12",
+  "torchaudio>=2.11,<2.12",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [
@@ -43,7 +66,7 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", ".."]
-addopts = ["--basetemp=.pytest_tmp", "-p", "no:cacheprovider"]
+addopts = ["--basetemp=build_tmp", "-p", "no:cacheprovider"]
 
 [tool.ruff]
 line-length = 100

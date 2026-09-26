@@ -3,6 +3,7 @@ from rq import Queue
 
 from core.config import Settings
 from core.database import Database
+from pipeline.cloud_run import start_worker_job
 
 
 def worker_failure(job, connection, exc_type, exc_value, traceback):
@@ -28,7 +29,7 @@ class Dispatcher:
         self.queue = Queue("shruti", connection=self.redis)
 
     def enqueue(self, job_id: str):
-        return self.queue.enqueue(
+        job = self.queue.enqueue(
             "pipeline.orchestrator.run_pipeline",
             job_id,
             job_timeout=self.settings.job_timeout_seconds,
@@ -36,6 +37,8 @@ class Dispatcher:
             result_ttl=86400,
             failure_ttl=604800,
         )
+        start_worker_job(self.settings)
+        return job
 
     def healthy(self) -> bool:
         try:

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
+from typing import cast
 
-from sqlalchemy import JSON, Integer, String, create_engine, update
+from sqlalchemy import JSON, CursorResult, Integer, String, create_engine, update
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from core.config import Settings
@@ -55,4 +56,4 @@ class Database:
                 .where(Job.id == job_id, Job.state == "queued")
                 .values(state="running", stage="media", updated_at=now())
             )
-            return result.rowcount == 1
+            return cast(CursorResult, result).rowcount == 1

@@ -1,0 +1,22 @@
+# Builds the API (with the studio frontend) and the inference worker in Cloud Build,
+# so the multi-GB worker image never has to be uploaded from a local machine.
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_REPO=REGION-docker.pkg.dev/PROJECT_ID/shruti
+substitutions:
+  _REPO: ""
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: api
+    args: ["build", "-f", "backend/Dockerfile", "--build-arg", "INSTALL_INFERENCE=0",
+           "-t", "${_REPO}/shruti-api:latest", "."]
+  - name: gcr.io/cloud-builders/docker
+    id: worker
+    waitFor: ["-"]
+    args: ["build", "-f", "backend/Dockerfile", "--build-arg", "INSTALL_INFERENCE=1",
+           "-t", "${_REPO}/shruti-worker:latest", "."]
+images:
+  - "${_REPO}/shruti-api:latest"
+  - "${_REPO}/shruti-worker:latest"
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY   # required when building with a user service account
+timeout: 3600s

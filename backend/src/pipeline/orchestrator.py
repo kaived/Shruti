@@ -16,7 +16,25 @@ from providers.base import ProviderUnavailable, load_providers
 from qc.evaluation import evaluate
 
 log = logging.getLogger(__name__)
-PIPELINE_VERSION = "0.2.0"
+
+
+def guarded(stage: str, operation, fallback):
+    """Run an optional-quality stage; on an unexpected error keep the job going.
+
+    Missing credentials still stop the job (ProviderUnavailable). Any other failure
+    uses a conservative fallback whose incompleteness QC reports as a critical issue,
+    so a single model hiccup never leaves the user without captions.
+    """
+    try:
+        return operation()
+    except ProviderUnavailable:
+        raise
+    except Exception:
+        log.exception("%s failed; continuing with a flagged fallback", stage)
+        return fallback()
+
+
+PIPELINE_VERSION = "0.3.0"
 
 
 def write_json(path: Path, value) -> None:
@@ -55,6 +73,8 @@ def run_pipeline(job_id: str, settings: Settings | None = None) -> None:
         providers = load_providers(settings)
         with db.sessions() as session:
             job = session.get(Job, job_id)
+            if job is None:
+                raise ValueError(f"Job {job_id} no longer exists")
             checksum = job.sha256
             attempt = job.attempts
         profile = CaptionProfile()
@@ -99,6 +119,7 @@ def run_pipeline(job_id: str, settings: Settings | None = None) -> None:
                         "attempt": attempt,
                     },
                 )
+            assert result is not None  # set from the cache or from operation()
             metrics[stage] = {"seconds": round(time.monotonic() - tick, 3), "cached": cached}
             db.update_job(job_id, stage_metrics=dict(metrics))
             return result
@@ -122,22 +143,50 @@ def run_pipeline(job_id: str, settings: Settings | None = None) -> None:
             dependency={"media_sha256": checksum},
             is_complete=lambda value: value.recognition_complete,
         )
+        diarized = (
+            checkpoint(
+                "diarization",
+                Transcript,
+                lambda: guarded(
+                    "diarization",
+                    lambda: providers.diarizer.diarize(audio_path, raw),
+                    # No speaker labels; diarization_complete stays False and QC flags it.
+                    lambda: raw,
+                ),
+                dependency=raw,
+                is_complete=lambda value: value.diarization_complete,
+            )
+            if providers.diarizer
+            else raw
+        )
         aligned = checkpoint(
             "alignment",
             Transcript,
-            lambda: providers.aligner.align(audio_path, raw),
-            dependency=raw,
+            lambda: providers.aligner.align(audio_path, diarized),
+            dependency=diarized,
             is_complete=lambda value: value.alignment_complete,
         )
-        if [(w.id, w.text, w.speaker_id) for w in raw.words] != [
+        if [(w.id, w.text, w.speaker_id) for w in diarized.words] != [
             (w.id, w.text, w.speaker_id) for w in aligned.words
         ]:
             raise ValueError("Alignment must preserve recognized words and speaker references")
         if (
-            raw.recognition_complete != aligned.recognition_complete
-            or raw.diarization_complete != aligned.diarization_complete
+            diarized.recognition_complete != aligned.recognition_complete
+            or diarized.diarization_complete != aligned.diarization_complete
+            or diarized.speaker_turns != aligned.speaker_turns
+            or diarized.overlapping_speech != aligned.overlapping_speech
+            or diarized.recognition_warnings != aligned.recognition_warnings
         ):
             raise ValueError("Alignment cannot change recognition or diarization completion")
+        if providers.normalizer:
+            aligned = checkpoint(
+                "code_switch",
+                Transcript,
+                lambda: guarded(
+                    "code_switch", lambda: providers.normalizer.normalize(aligned), lambda: aligned
+                ),
+                dependency=aligned,
+            )
         evidence = checkpoint(
             "acoustics",
             AudioEvidence,
@@ -166,7 +215,22 @@ def run_pipeline(job_id: str, settings: Settings | None = None) -> None:
             tracks[language] = checkpoint(
                 f"translation_{language}",
                 list[Cue],
-                lambda language=language: providers.translator.translate(speech_cues, language),
+                lambda language=language: guarded(
+                    f"translation_{language}",
+                    lambda: providers.translator.translate(speech_cues, language),
+                    # Source text keeps the track complete and in sync; QC flags every
+                    # such cue as TRANSLATION_MISSING (critical).
+                    lambda: [
+                        cue.model_copy(
+                            update={
+                                "id": f"{cue.id}-{language}",
+                                "language": language,
+                                "source_cue_ids": [cue.id],
+                            }
+                        )
+                        for cue in speech_cues
+                    ],
+                ),
                 dependency=speech_cues,
             )
         db.update_job(job_id, stage="quality_control")

@@ -1,6 +1,7 @@
 import type { Cue, Issue, ReviewFilterType } from '../types';
 import { getFriendlyIssueInfo } from '../utils/issueHelpers';
 import { formatTime } from '../utils/time';
+import { Button } from '../../../shared/ui';
 
 interface ReviewPanelProps {
   issues: Issue[];
@@ -120,16 +121,17 @@ export function ReviewPanel({
                     <span className="issue-lang-tag">{iss.language}</span>
                   </div>
 
-                  <button
-                    type="button"
-                    className={`btn-resolve-toggle ${isResolved ? 'resolved' : ''}`}
+                  <Button
+                    variant={isResolved ? 'secondary' : 'primary'}
+                    size="sm"
+                    className="!py-0.5 !px-2.5 !text-xs shrink-0"
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleIssueResolved(iss.id);
                     }}
                   >
                     {isResolved ? '✓ Reviewed' : 'Mark reviewed'}
-                  </button>
+                  </Button>
                 </div>
 
                 <h3 className="issue-friendly-title">{info.title}</h3>
@@ -149,22 +151,24 @@ export function ReviewPanel({
                   </div>
                 )}
 
-                <div className="issue-action-buttons">
-                  <button
-                    type="button"
-                    className="btn-issue-action play-btn"
+                <div className="issue-action-buttons flex items-center gap-2 mt-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="!py-1 !px-2.5 !text-xs"
                     onClick={(e) => {
                       e.stopPropagation();
                       onReplaySection(iss.start_ms, iss.end_ms);
                     }}
                   >
                     ▶ Play this section
-                  </button>
+                  </Button>
 
                   {iss.cue_ids.length > 0 && (
-                    <button
-                      type="button"
-                      className="btn-issue-action edit-btn"
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="!py-1 !px-2.5 !text-xs"
                       onClick={(e) => {
                         e.stopPropagation();
                         const targetCue = cues.find((c) => iss.cue_ids.includes(c.id));
@@ -174,7 +178,7 @@ export function ReviewPanel({
                       }}
                     >
                       ✎ Edit caption
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>

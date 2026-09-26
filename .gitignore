@@ -103,12 +103,16 @@ data/
 shruti-asr-*/
 .pytest_tmp/
 **/.pytest_tmp/
+build_tmp/
+**/build_tmp/
 tmp/
 temp/
 
 # ==========================================
 # Testing & Coverage
 # ==========================================
+backend/tests/
+**/tests/
 .pytest_cache/
 **/.pytest_cache/
 .coverage

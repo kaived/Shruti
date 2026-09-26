@@ -1,3 +1,4 @@
+import { Film } from 'lucide-react';
 import { formatElapsed } from '../utils/timeFormat';
 
 interface ProcessingHeaderProps {
@@ -9,7 +10,7 @@ export function ProcessingHeader({ filename, elapsedSeconds }: ProcessingHeaderP
   return (
     <div className="processing-header">
       <div className="processing-file-badge">
-        <span className="file-icon">🎬</span>
+        <Film size={15} className="file-icon" />
         <span className="file-name">{filename}</span>
       </div>
 

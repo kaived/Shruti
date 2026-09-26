@@ -1,0 +1,8 @@
+# Type-checker configuration for Pyrefly (VS Code extension and CLI).
+# Pyrefly does not read pyrightconfig.json's venvPath/venv, so point it at the
+# project virtualenv explicitly; every runtime and inference package lives there.
+project-includes = ["ai", "backend/src"]
+project-excludes = ["**/.venv/**", "**/build_tmp/**", "**/__pycache__/**", "**/node_modules/**"]
+search-path = ["backend/src", "."]
+python-interpreter-path = "backend/.venv/Scripts/python.exe"
+site-package-path = ["backend/.venv/Lib/site-packages"]

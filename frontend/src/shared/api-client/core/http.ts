@@ -1,43 +1,16 @@
+import { apiPath } from '../../config';
 import type { ZodType } from 'zod';
+import type { AxiosRequestConfig, AxiosResponse } from 'axios';
+import { apiClient, ApiError, ApiContractError } from './client';
 
-interface ErrorPayload {
-  detail?: unknown;
-  message?: unknown;
-}
+export { apiClient, ApiError, ApiContractError };
 
-export interface ApiRequestOptions extends RequestInit {
+export interface ApiRequestOptions extends AxiosRequestConfig {
   accessToken?: string;
 }
 
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
-
-export class ApiContractError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'ApiContractError';
-  }
-}
-
 export function jobPath(jobId: string, suffix = ''): string {
-  return `/api/jobs/${encodeURIComponent(jobId)}${suffix}`;
-}
-
-export async function errorMessageFromResponse(
-  response: Pick<Response, 'status' | 'statusText' | 'json'>,
-  fallback: string
-): Promise<string> {
-  const payload = (await response.json().catch(() => null)) as ErrorPayload | null;
-  if (typeof payload?.detail === 'string') return payload.detail;
-  if (typeof payload?.message === 'string') return payload.message;
-  return response.statusText || fallback;
+  return apiPath(`/jobs/${encodeURIComponent(jobId)}${suffix}`);
 }
 
 export function parseContract<T>(schema: ZodType<T>, value: unknown, label: string): T {
@@ -50,34 +23,31 @@ export function parseContract<T>(schema: ZodType<T>, value: unknown, label: stri
   return parsed.data;
 }
 
-export async function apiFetch(path: string, options: ApiRequestOptions = {}): Promise<Response> {
-  const { accessToken, headers: initialHeaders, ...requestOptions } = options;
-  const headers = new Headers(initialHeaders);
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-
-  return fetch(path, {
-    ...requestOptions,
-    headers,
-    credentials: 'same-origin',
-  });
-}
-
+/**
+ * Execute an API request using Axios and validate the response payload with Zod.
+ */
 export async function apiRequest<T>(
   path: string,
   schema: ZodType<T>,
   options: ApiRequestOptions = {},
   label = 'API'
 ): Promise<T> {
-  const response = await apiFetch(path, options);
-  if (!response.ok) {
-    throw new ApiError(
-      await errorMessageFromResponse(response, `${label} request failed.`),
-      response.status
-    );
+  const { accessToken, method = 'GET', headers, ...restOptions } = options;
+
+  const requestHeaders: Record<string, string> = {};
+  if (headers) {
+    Object.assign(requestHeaders, headers);
+  }
+  if (accessToken) {
+    requestHeaders.Authorization = `Bearer ${accessToken}`;
   }
 
-  const payload = await response.json().catch((cause: unknown) => {
-    throw new ApiContractError(`The backend returned non-JSON data for ${label}.`, { cause });
+  const response: AxiosResponse<unknown> = await apiClient.request({
+    url: path,
+    method,
+    headers: requestHeaders,
+    ...restOptions,
   });
-  return parseContract(schema, payload, label);
+
+  return parseContract(schema, response.data, label);
 }

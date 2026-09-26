@@ -14,7 +14,7 @@ export default defineConfig({
             if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
               if (res && 'writeHead' in res && !res.headersSent) {
                 res.writeHead(503, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ detail: 'Backend server is not running on 127.0.0.1:8000' }));
+                res.end(JSON.stringify({ detail: 'The studio service is temporarily unavailable. Please try again shortly.' }));
               }
             }
           });

@@ -7,11 +7,10 @@ name: shruti
 x-app-environment: &app-environment
   PYTHONUNBUFFERED: "1"
   SHRUTI_DATA_DIR: /data
-  SHRUTI_DATABASE_URL: ${SHRUTI_DATABASE_URL:-${SHRUTI_DB_URL:?Set SHRUTI_DATABASE_URL or SHRUTI_DB_URL to the Neon PostgreSQL URL}}
-  SHRUTI_REDIS_URL: ${SHRUTI_REDIS_URL:-${REDIS_URL:?Set SHRUTI_REDIS_URL or REDIS_URL to the Upstash rediss:// TCP URL}}
-  GROQ_API_KEY: ${GROQ_API_KEY:?Set GROQ_API_KEY}
+  SHRUTI_DB_URL: ${SHRUTI_DB_URL:?Set SHRUTI_DB_URL to the Neon PostgreSQL URL}
+  SHRUTI_REDIS_URL: ${SHRUTI_REDIS_URL:?Set SHRUTI_REDIS_URL to the Upstash rediss:// TCP URL}
   SHRUTI_PROVIDER_FACTORY: ${SHRUTI_PROVIDER_FACTORY:-ai.factory:create_providers}
-  SHRUTI_PROVIDER_REVISION: ${SHRUTI_PROVIDER_REVISION:-groq-safety-v1}
+  SHRUTI_PROVIDER_REVISION: ${SHRUTI_PROVIDER_REVISION:-ai-models-v2}
   SHRUTI_UPLOAD_KEY: ${SHRUTI_UPLOAD_KEY:?Set a strong SHRUTI_UPLOAD_KEY}
   SHRUTI_COOKIE_SECURE: ${SHRUTI_COOKIE_SECURE:-true}
   SHRUTI_ALLOWED_ORIGINS: ${SHRUTI_ALLOWED_ORIGINS:-["http://localhost:8080"]}
@@ -44,7 +43,7 @@ services:
         - -c
         - >-
           import urllib.request;
-          urllib.request.urlopen('http://localhost:8000/api/readiness', timeout=4)
+          urllib.request.urlopen('http://localhost:8000/api/v1/readiness', timeout=4)
       interval: 15s
       timeout: 5s
       retries: 10
@@ -57,6 +56,16 @@ services:
 
   worker:
     <<: *app-service
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_INFERENCE: "1"
+    environment:
+      <<: *app-environment
+      GROQ_API_KEY: ${GROQ_API_KEY:?Set GROQ_API_KEY}
+      SHRUTI_HF_TOKEN: ${SHRUTI_HF_TOKEN:?Set SHRUTI_HF_TOKEN for Community-1 diarization}
+      SHRUTI_TRANSLATION_MODEL: ${SHRUTI_TRANSLATION_MODEL:-openai/gpt-oss-120b}
     command: [python, -m, pipeline.worker]
     depends_on:
       api:
@@ -66,7 +75,7 @@ services:
       resources:
         limits:
           cpus: "2.00"
-          memory: 2G
+          memory: 6G
 
   web:
     build:

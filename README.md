@@ -1,180 +1,176 @@
-# Shruti
+# Shruti — Bengali Caption & Subtitle Studio
 
-Bengali captioning and multilingual subtitle review, with stable speaker contracts and evidence-based quality control.
+Upload a Bengali video and get a **speaker-attributed Bengali closed-caption track (WebVTT) with non-speech sound captions**, **English and Hindi subtitles (SRT)**, and a **QC report with a ranked review queue** that tells a human exactly which lines to check — including any text that may have been hallucinated over silence or music.
 
-**Status: tested engineering starter, not a completed PS2 submission.** A safety-first Groq ASR/translation factory and real shot detector are included, but diarization, Bengali forced alignment and validated independent acoustic classification remain incomplete. The application never substitutes canned dialogue or marks missing evidence as successful. The default configuration remains blocked until an explicit provider factory is selected.
+> **Status:** deployed and working end to end (Cloudflare Pages frontend → Cloud Run API → Cloud Run Job AI worker). Outputs are automated drafts for human review; accuracy has been measured only on short sample clips, not on an independent held-out set. See [Results](#measured-results) and [Limitations](#limitations).
 
-## What works now
+---
 
-- React/TypeScript review interface: upload, persistent session job access, status, media preview, track selection, cue seeking, QC filters and downloads when outputs exist.
-- FastAPI API with streaming upload limits, hashed per-job access tokens, HTTP-only media-access cookies and artifact allowlisting.
-- Durable database records, Redis/RQ processing worker, bounded manual retries and versioned stage checkpoints.
-- FFmpeg media inspection and timeline-preserving audio extraction.
-- Typed contracts for words, global speaker IDs, alignment, independent acoustic evidence, shot analysis, sound events, cues and QC findings.
-- Initial deterministic cue grouping, provisional readability checks, shot-crossing checks, suspected unsupported-word detection, missed-speech coverage and translation-source checks.
-- Bounded Groq ASR chunks with overlap reconciliation, provider word timestamps, no fabricated confidence scores and explicitly unresolved speakers.
-- Strict batched English/Hindi translation: malformed, missing, duplicate or source-copy responses fail instead of becoming mislabeled subtitles.
-- Bengali WebVTT and English/Hindi SRT exporters; VTT preview derivatives for translated tracks.
-- Explicit incomplete/review-required QC states. No automatic human release approval.
-- Local SQLite mode, PostgreSQL/Redis Docker Compose configuration and dependency locks.
+## How it works
 
-## What still needs implementation and validation
+Every stage is an AI model; deterministic code only validates formats, timing and access.
 
-1. Validate Groq Bengali/code-switch ASR on held-out footage and connect a stable diarization adapter.
-2. Bengali/code-switched forced alignment adapter.
-3. Independent speech/music/sound-event analysis and empirical shot-detector validation.
-4. Validate context-aware English/Hindi translation quality on supplied footage.
-5. Empirical QC calibration and recognition/diarization/translation evaluation on the supplied footage.
-6. More capable cue optimization: the current grouper flags hard cases rather than solving every readability/timing conflict.
-7. Optional character-name inference/confirmation and editable review resolution. Current UI is read-only review; naming fields exist in contracts.
-8. Public deployment, GitHub publication and the required submission video.
+| # | Stage | Model / tool | Output |
+|---|---|---|---|
+| 1 | Media check | FFprobe / FFmpeg | 16 kHz mono audio on the original timeline |
+| 2 | Bengali speech recognition | **Groq Whisper large-v3** (15 s overlapping chunks, word timestamps) | `transcription.json` |
+| 3 | Speaker diarization | **pyannote Community-1**, run once over the whole recording → stable speaker IDs | `diarization.json` |
+| 4 | Forced alignment | **stable-ts** (Whisper small) re-times every word against the audio | `alignment.json` |
+| 5 | Code-switched English | **LLM (Groq GPT-OSS 120B)** respells English written in Bengali script (`মিটিং` → `meeting`, `অফিসে` → `office-এ`); raw ASR text is kept | `code_switch.json` |
+| 6 | Independent audio evidence | **Silero VAD** (speech) + **PANNs** (music, laughter, applause, phone, door…) — independent of the ASR | `acoustics.json` |
+| 7 | Shot changes | **PySceneDetect** | `shots.json` |
+| 8 | Cue segmentation | Speaker / shot / pause / sentence boundaries, reading-speed retiming, no shot straddling | `bengali_cues.json` |
+| 9 | Translation | **LLM (Groq GPT-OSS 120B)**, source-linked, per-cue retry | `translation_en.json`, `translation_hi.json` |
+| 10 | Quality control | Cross-checks all evidence; ranked review queue | `qc_report.json` |
+| 11 | Export | `bengali.vtt`, `english.srt`, `hindi.srt`, `manifest.json` | review studio + downloads |
 
-No accuracy, latency or cost results on Hoichoi footage have been measured. Unit tests use explicitly synthetic data and are not evidence of model accuracy. The inference-configured flag checks configuration presence; it does not certify provider health or quality.
+### The hallucination safeguard (toughest test)
 
-## Start with Docker Compose
+Whisper can invent text over silence or music. Shruti never trusts the ASR alone: each recognised word is checked against **independent** speech evidence (Silero VAD + PANNs). Words with weak support are flagged `SUSPECTED_HALLUCINATION` (critical) with the music overlap as evidence, and **these are ranked first** in the review queue. The reverse is checked too: detected speech with no transcript becomes `SPEECH_WITHOUT_TEXT` / `POSSIBLE_MISSED_SPEECH`. If any evidence stage fails, QC reports `incomplete` — it never claims an all-clear.
 
-Requirements: Docker with Compose. From this directory:
+### Review queue ranking
 
-```bash
-cp .env.example .env
-docker compose up --build -d
+Issues are ordered by severity (critical → high → medium), then by a documented priority: suspected hallucination → missing translation → speech without text → ASR timing problems → repetition → missed speech → overlapping speech → speaker uncertainty → acoustic uncertainty → shot crossing → cue overlap → reading speed → line length → duration → translation inheriting a flagged source. Each issue links to its cue(s), time range, language and evidence; clicking it in the studio plays that moment.
+
+### Reliability
+
+- Only a speech-recognition failure (after 6 retries) can stop a job — without text there is nothing to caption.
+- Diarization, alignment, English respelling, sound detection, shot detection and translation **fall back and continue**; the gap is recorded and flagged in QC (e.g. an untranslated line keeps the Bengali text and is flagged `TRANSLATION_MISSING`).
+- A worker killed by the platform cannot leave a job "running" forever: past the job time limit the API marks it failed with **Try again**.
+- Completed stages are checkpointed; a retry reuses them.
+
+---
+
+## Architecture
+
+```
+Browser (Cloudflare Pages: React studio)
+   │  1. POST /api/v1/cloud-uploads  ──►  Cloud Run service "shruti-api" (FastAPI)
+   │  2. PUT video directly  ─────────►  Cloud Storage bucket (private)
+   │  3. POST …/finalize  ───────────►  API verifies size + SHA-256, queues job (Upstash Redis),
+   │                                      starts Cloud Run Job "shruti-worker"
+   │                                      Worker (8 vCPU, 16 GiB): AI pipeline above,
+   │                                      writes outputs to the bucket, state to Neon Postgres
+   └─ polls /api/v1/jobs/{id}, then loads results, video and downloads
 ```
 
-PowerShell users can replace the first command with `Copy-Item .env.example .env`.
+- Uploads go straight to Cloud Storage, bypassing Cloud Run's 32 MB request limit (videos up to 500 MB / 2 hours).
+- Each job has its own random access token (stored hashed). The studio keeps job tokens in the browser's `localStorage`, so users can close the tab and reopen videos from **My videos**. There are no user accounts: a job is reachable only from the browser that uploaded it.
+- Secrets (Groq, Hugging Face, database, Redis, upload key) live in Secret Manager and are never sent to the browser.
 
-- Review interface: http://localhost:8080
-- API documentation: http://localhost:8000/docs
-- API health: http://localhost:8000/api/health
-- Infrastructure readiness: http://localhost:8000/api/readiness
+---
 
-Open the UI and upload a file to exercise job creation. With no inference configuration, the job becomes `blocked` rather than producing fake captions. The worker checks provider configuration before expensive audio extraction.
+## Measured results
+
+From real runs on a 2-minute clip of the supplied `mohanagar.mp4` (not a held-out evaluation):
+
+| Measure | Result |
+|---|---|
+| End-to-end cloud run | ✅ completed; all tracks, QC report and manifest produced |
+| Suspected hallucinations | 5 flagged as critical, ranked at the top of the queue |
+| Code-switched English restored | e.g. `meeting`, `public`, `toilet-এর`, `parcel-এ`, `invitation`, `family-র`, `city` |
+| Shot-straddling cues | 10 → **3** after reading-speed retiming |
+| Reading-speed violations | 37 → **22** |
+| Cues without a speaker label | 24 → **6** (of 42) |
+| Processing time (warm, 8 vCPU) | ≈ 2 min of processing per minute of video (diarization ≈ 98 s and alignment ≈ 111 s for 2 min) |
+
+A 30–40 minute episode is expected to take about 1–1.5 hours; the job limit is 3 hours. Full-length episodes have not yet been validated end to end.
+
+---
+
+## Limitations
+
+- Accuracy is not validated on independently annotated held-out episodes; no WER/DER is claimed.
+- Whisper's Bengali spelling is phonetic (e.g. `আছকে` for `আজকে`); the LLM only respells English words.
+- Some cues remain without a confident speaker; they are flagged rather than guessed. Speaker names are not inferred automatically (speakers can be renamed in the studio).
+- Fast speech can still exceed the reading-speed limit; such cues are flagged. Caption limits (17 CPS Bengali/Hindi, 20 English, 42 chars × 2 lines, 0.8–7 s) are provisional, not an official profile.
+- Non-Bengali videos are transcribed as Bengali and are not detected.
+- Groq plan limits (requests/tokens per day) bound how many long episodes can be processed per day.
+- CPU inference; a GPU worker would cut processing time substantially.
+- Access is per-browser (no accounts); the media URL carries the job token, so Cloud Run request logs contain it.
+- The downloads menu currently rebuilds files in the browser from the reviewed cues; the backend's validated files are available at `/api/v1/jobs/{id}/artifacts/{name}`.
+
+---
+
+## Run locally
+
+Requirements: Python 3.12 + [uv](https://docs.astral.sh/uv/), Node 22.12+, Docker (for the worker and FFmpeg on Windows).
 
 ```bash
-docker compose logs -f api worker
-docker compose down
+cp .env.example .env.development          # fill in real values
+cd backend && uv sync --frozen --extra inference --dev
+uv run python src/server.py               # API on http://127.0.0.1:8000 (docs: /api-docs)
 ```
-
-Compose stores jobs, media, PostgreSQL data and the Redis append-only log in named volumes. `docker compose down` retains these volumes. Docker Compose could not be executed in the creation environment because Docker was not installed; validate this deployment path on your machine before relying on it.
-
-## Local development
-
-Use Python 3.12 or 3.13, Node 22.12+ (Node 22 LTS recommended for this setup), uv, FFmpeg/FFprobe and Redis. On Windows, run the RQ worker in Docker or WSL2; the selected worker uses Unix process forking.
-
-Start Redis using Docker if available:
-
-```bash
-docker compose up -d redis
-```
-
-Backend terminal:
-
-```bash
-cd backend
-cp .env.example .env
-uv sync --frozen --dev
-uv run uvicorn api.routes:create_app --factory --reload --host 127.0.0.1 --port 8000
-```
-
-Worker terminal (same backend directory and environment):
-
-```bash
-uv run python -m pipeline.worker
-```
-
-Frontend terminal:
 
 ```bash
 cd frontend
-npm ci
-npm run dev
+cp .env.example .env.development          # empty VITE_API_BASE_URL = use the local API via the Vite proxy
+npm ci && npm run dev                      # studio on http://localhost:5173
 ```
 
-Open http://localhost:5173. Vite proxies `/api` to the backend so protected video requests use the same browser origin. SQLite is the local default. API and worker must use the same database, data directory and provider configuration.
+The worker needs FFmpeg and Unix process forking; on Windows run it in Docker (`docker compose up --build worker`).
 
-## Repository map
+> Local `.env.development` pointing at the production Neon/Upstash shares their queue with the cloud worker. Use separate local services, or point the local studio at the deployed API instead.
 
-| Path | Responsibility |
-| --- | --- |
-| `backend/src/api/routes.py` | HTTP endpoints, upload/access boundary and job controls |
-| `backend/src/core/database.py` | Job persistence and atomic worker claim |
-| `backend/src/core/contracts.py` | Validated inference, caption and QC records |
-| `backend/src/providers/base.py` | Real model integration protocols and factory loading |
-| `backend/src/media/audio.py` | Media probing, limits and audio extraction |
-| `backend/src/pipeline/orchestrator.py` | Stage ordering, checkpoints and output lineage |
-| `backend/src/captions/` | Cue segmentation and WebVTT/SRT serialization |
-| `backend/src/qc/` | Evidence checks and held-out benchmark utilities |
-| `backend/src/pipeline/queueing.py`, `worker.py` | RQ execution and failure recording |
-| `ai/` | Groq ASR/translation, shot detection and explicit incomplete adapters |
-| `backend/tests/` | Safety, format, API and media-processing regression tests |
-| `frontend/src/` | Upload and caption review application |
-| `infra/nginx.conf` | Same-origin API proxy and static frontend serving |
-| `docs/` | Requirements, integration contract, architecture and next steps |
+---
 
-## Connect real inference
+## Deploy
 
-The included safety-first factory is `ai.factory:create_providers`. It requires `GROQ_API_KEY` and provides chunked Groq recognition, strict Groq translation and PySceneDetect shot cuts. Its timestamp pass-through aligner and waveform-only acoustic validator deliberately keep jobs `partial`; they do not satisfy forced-alignment or independent-speech-evidence requirements. The detailed contract for replacing those adapters is in [docs/PROVIDER_INTEGRATION.md](docs/PROVIDER_INTEGRATION.md).
+**Backend (Google Cloud Run)** — one script, run from the repo root in Git Bash with `gcloud` signed in:
 
-Set these variables in the API and worker environments:
-
-```dotenv
-GROQ_API_KEY=replace-with-server-side-secret
-SHRUTI_PROVIDER_FACTORY=ai.factory:create_providers
-SHRUTI_PROVIDER_REVISION=groq-safety-v1
+```bash
+bash deploy/gcp.sh setup    # APIs, registry, bucket (+CORS), secrets from .env.production, service account, starts Cloud Build
+bash deploy/gcp.sh status   # wait for SUCCESS
+FRONTEND_ORIGINS=https://your-studio.pages.dev bash deploy/gcp.sh deploy
 ```
 
-Keep keys in environment variables. Restart API/worker after changing environment settings. In Docker, rebuild if code/dependencies changed. Do not describe this factory as fully complete until the remaining diarization, alignment and acoustic adapters are connected and validated.
+`deploy` creates the worker Cloud Run Job and the API service, mounts the bucket at `/data`, wires secrets, and allows the listed frontend origins for both the API (CORS) and direct bucket uploads. Details: [docs/CLOUD_RUN.md](docs/CLOUD_RUN.md).
 
-Increment the revision when models, prompts, thresholds or provider behaviour change. Checkpoint fingerprints include the media checksum, pipeline version, profile and provider revision. A provider code change without a revision bump can reuse stale results. Raw recognition and alignment outputs remain separate.
+**Frontend (Cloudflare Pages)** — root `frontend`, build `npm run build`, output `dist`, environment `VITE_API_BASE_URL=https://shruti-api-<project-number>.<region>.run.app` and `NODE_VERSION=22`. Or: `cd frontend && npm run build && npx wrangler pages deploy dist --project-name <name>`.
 
-## API essentials
+**Rotate the upload key:** add a new version of the `shruti-upload-key` secret, then `gcloud run services update shruti-api --update-secrets=SHRUTI_UPLOAD_KEY=shruti-upload-key:latest`.
 
-| Endpoint | Behaviour |
-| --- | --- |
-| `GET /api/health` | API liveness |
-| `GET /api/readiness` | Database, Redis and media tools |
-| `GET /api/capabilities` | Configuration state and input limits |
-| `POST /api/jobs?filename=clip.mp4` | Raw binary video body; returns job ID and one-time access token |
-| `GET /api/jobs/{id}` | Processing/QC state and stage metadata |
-| `POST /api/jobs/{id}/retry` | Bounded retry of a failed, blocked or partial job |
-| `GET /api/jobs/{id}/media` | Protected original video, including range responses |
-| `GET /api/jobs/{id}/results` | Tracks and QC after completion/partial completion |
-| `GET /api/jobs/{id}/artifacts/{name}` | Allowlisted exports |
+---
 
-Job routes require `Authorization: Bearer <access_token>` or the matching HTTP-only job cookie. Tokens are hashed in the database; browser API access tokens live in sessionStorage, not URL query strings. The UI remembers up to 12 jobs in the current session. This is a scoped demo access scheme, not enterprise authentication.
+## API
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/v1/health`, `/api/v1/readiness` | Liveness; database, queue and FFmpeg readiness |
+| GET | `/api/v1/capabilities` | Upload/duration limits, whether an upload key is required |
+| POST | `/api/v1/cloud-uploads` | Create a direct Cloud Storage upload session (`X-Upload-Key`) |
+| POST | `/api/v1/cloud-uploads/{id}/finalize` | Verify the upload and start processing |
+| POST | `/api/v1/jobs` | Fallback upload through the API (small files / local) |
+| GET | `/api/v1/jobs/{id}` | State, current stage, timings |
+| POST | `/api/v1/jobs/{id}/retry` | Retry a failed job (reuses finished stages; max 3 attempts) |
+| GET | `/api/v1/jobs/{id}/media` | Original video (range requests) |
+| GET | `/api/v1/jobs/{id}/results` | Bengali/English/Hindi cues and QC report |
+| GET | `/api/v1/jobs/{id}/artifacts/{name}` | `bengali.vtt`, `english.srt`, `hindi.srt`, `*.vtt`, `qc_report.json`, `manifest.json` |
+
+Job routes accept `Authorization: Bearer <token>`; the media route also accepts `?access_token=` for the `<video>` element. Interactive docs: `/api-docs`.
+
+---
 
 ## Verification
 
 ```bash
-cd backend
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest -q
+cd backend && uv run ruff check ../ai src && uv run ruff format --check ../ai src
+uvx pyrefly check                  # from the repo root; uses pyrefly.toml → backend/.venv
+cd frontend && npm run build       # includes tsc -b
 ```
 
-```bash
-cd frontend
-npm run build
-```
+---
 
-Tests cover unsupported text over silence/music, real speech under music, caption dwell time, missing evidence, missed speech, source uncertainty propagation, shot crossings, absent translations, identity references, independent VTT/SRT parsing, upload limits, access isolation, queue failure, blocked inference and real FFmpeg extraction. See [docs/VALIDATION.md](docs/VALIDATION.md) for observed checks and limitations.
+## Repository map
 
-## Before public demo deployment
-
-- Connect and test the actual inference providers; a blocked starter is not a hackathon submission.
-- Replace local database credentials, set an upload access key, terminate HTTPS and set `SHRUTI_COOKIE_SECURE=true`.
-- Add ingress request/rate/concurrency/storage limits and a worker heartbeat/reconciliation check. Readiness currently does not prove a worker is alive or model inference is healthy.
-- Keep API/worker storage shared; verify codecs and original-video browser playback with the actual assets. Browser compatibility for every MKV/MP4 codec is not guaranteed.
-- Align Nginx and API upload limits. The initial limit is 512 MiB and the initial runtime limit is two hours, both provisional.
-- Establish retention/deletion and access controls appropriate to the intended users. Current code has no deletion UI, backup system, enterprise login or migration framework.
-- Normal RQ failures/timeouts are recorded. Abrupt machine loss or a crash between database commit and enqueue needs operator reconciliation; an outbox/watchdog is later hardening.
-- Keep source videos out of the public repository unless redistribution is authorised. Keep reference annotations out of live inference.
-- Validate a fresh live upload, capture measured results, publish the repository/demo and record a walkthrough under five minutes.
-
-## Technical references
-
-- [FastAPI background computation guidance](https://fastapi.tiangolo.com/tutorial/background-tasks/)
-- [RQ workers and job execution](https://python-rq.org/docs/workers/)
-- [Vite runtime requirements](https://vite.dev/guide/)
-- [WebVTT specification](https://www.w3.org/TR/webvtt1/)
-
-The organiser's PS2 brief is authoritative. All caption thresholds in this starter are explicitly provisional and require validation against the supplied editorial/evaluation profile.
+| Path | Responsibility |
+|---|---|
+| `ai/` | Model adapters: `transcriber`, `diarizer`, `aligner`, `codeswitch`, `acoustics`, `shots`, `translator`, `factory` |
+| `backend/src/api/` | FastAPI routes, direct Cloud Storage uploads, schemas |
+| `backend/src/pipeline/` | Orchestrator (stages, checkpoints, fallbacks), RQ queue/worker, Cloud Run Job trigger |
+| `backend/src/captions/` | Cue segmentation/retiming, WebVTT/SRT export |
+| `backend/src/qc/` | QC evaluation and ranking |
+| `backend/src/core/` | Settings, typed contracts, database |
+| `frontend/src/` | React studio: upload, progress, review workspace, My videos |
+| `deploy/gcp.sh`, `cloudbuild.yaml` | Cloud Run build and deploy |
+| `docs/` | `REQUIREMENTS.md` (PS2 requirements spec), `CLOUD_RUN.md` (deployment reference) |

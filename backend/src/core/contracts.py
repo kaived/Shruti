@@ -17,6 +17,7 @@ class Interval(BaseModel):
 class Word(Interval):
     id: str = Field(min_length=1)
     text: str = Field(min_length=1)
+    raw_text: str | None = None  # original ASR spelling when normalized
     speaker_id: str | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
 
@@ -28,11 +29,23 @@ class Speaker(BaseModel):
     name_evidence: list[Interval] = []
 
 
+class SpeakerTurn(Interval):
+    speaker_id: str = Field(min_length=1)
+
+
+class RecognitionWarning(Interval):
+    code: Literal["ASR_UNTIMED_TEXT", "ASR_INVALID_WORD_TIMESTAMP"]
+    rejected_words: int = Field(ge=0)
+
+
 class Transcript(BaseModel):
     provider: str
     model_version: str
     words: list[Word]
     speakers: list[Speaker]
+    speaker_turns: list[SpeakerTurn] = []
+    overlapping_speech: list[Interval] = []
+    recognition_warnings: list[RecognitionWarning] = []
     recognition_complete: bool = False
     diarization_complete: bool = False
     alignment_complete: bool = False
@@ -45,6 +58,8 @@ class Transcript(BaseModel):
             raise ValueError("Duplicate word/speaker IDs")
         if any(w.speaker_id and w.speaker_id not in speakers for w in self.words):
             raise ValueError("Unknown speaker reference")
+        if any(turn.speaker_id not in speakers for turn in self.speaker_turns):
+            raise ValueError("Unknown speaker turn reference")
         if ids and any(
             a.start_ms > b.start_ms for a, b in zip(self.words, self.words[1:], strict=False)
         ):
@@ -66,6 +81,7 @@ class AudioEvidence(BaseModel):
     independent_of_asr: bool
     speech: list[Interval]
     music: list[Interval] = []
+    uncertain_speech: list[Interval] = []
     sounds: list[SoundEvent] = []
 
 

@@ -8,3 +8,5 @@
 **/.env*
 .git
 *.zip
+**/build_tmp
+**/build_tmp

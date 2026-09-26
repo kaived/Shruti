@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="brandGradient512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0047ab" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@700&amp;display=swap');
+      .bengali-glyph-lg {
+        font-family: 'Noto Sans Bengali', 'SolaimanLipi', 'Mukti', 'Vrinda', 'Nirmala UI', sans-serif;
+        font-weight: 700;
+        font-size: 288px;
+        fill: #ffffff;
+        text-anchor: middle;
+        dominant-baseline: central;
+      }
+    </style>
+  </defs>
+  <rect width="512" height="512" rx="88" fill="url(#brandGradient512)" />
+  <text x="256" y="264" class="bengali-glyph-lg">শ্রু</text>
+</svg>

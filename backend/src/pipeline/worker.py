@@ -14,7 +14,7 @@ def main():
     db.initialize()
     db.engine.dispose()
     connection = Redis.from_url(settings.redis_url)
-    Worker(["shruti"], connection=connection).work()
+    Worker(["shruti"], connection=connection).work(burst=settings.worker_burst)
 
 
 if __name__ == "__main__":

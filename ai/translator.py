@@ -1,10 +1,13 @@
 import json
+import logging
 import os
-
-# pyrefly: ignore [missing-import]
-from groq import Groq
+import re
 
 from core.contracts import Cue
+from groq import APIError, Groq
+
+log = logging.getLogger(__name__)
+BENGALI = re.compile(r"[ঀ-৿]")
 
 
 class GroqLLMTranslator:
@@ -15,13 +18,17 @@ class GroqLLMTranslator:
         api_key: str | None = None,
         *,
         client=None,
-        model: str = "llama-3.3-70b-versatile",
+        model: str | None = None,
         batch_size: int = 40,
     ):
         if batch_size <= 0:
             raise ValueError("Translation batch size must be positive")
-        self.client = client or Groq(api_key=api_key or os.getenv("GROQ_API_KEY"))
-        self.model = model
+        self.client = client or Groq(
+            api_key=api_key or os.getenv("GROQ_API_KEY"), max_retries=6
+        )
+        self.model = model or os.getenv(
+            "SHRUTI_TRANSLATION_MODEL", "openai/gpt-oss-120b"
+        )
         self.batch_size = batch_size
 
     def _translate_batch(self, cues: list[Cue], language: str) -> dict[str, str]:
@@ -47,32 +54,56 @@ class GroqLLMTranslator:
             temperature=0,
             response_format={"type": "json_object"},
         )
-        raw_text = response.choices[0].message.content
-        if not raw_text:
-            raise RuntimeError(f"Groq returned an empty {language} translation")
-        payload = json.loads(raw_text)
+        payload = json.loads(response.choices[0].message.content or "{}")
         items = payload.get("translations") if isinstance(payload, dict) else None
-        if not isinstance(items, list):
-            raise RuntimeError(f"Groq returned an invalid {language} translation payload")
-
         expected = {cue.id: cue.text.strip() for cue in cues}
         translations: dict[str, str] = {}
-        for item in items:
+        # Keep every valid item; anything invalid, duplicated or untranslated is left
+        # missing so the caller can retry just those cues.
+        for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict):
-                raise RuntimeError(f"Groq returned an invalid {language} translation item")
+                continue
             cue_id, text = item.get("id"), item.get("text")
-            if cue_id not in expected or not isinstance(text, str) or not text.strip():
-                raise RuntimeError(f"Groq returned an invalid {language} translation item")
-            if cue_id in translations:
-                raise RuntimeError(f"Groq returned duplicate translation id {cue_id}")
+            if (
+                cue_id not in expected
+                or cue_id in translations
+                or not isinstance(text, str)
+            ):
+                continue
             clean_text = text.strip()
-            if clean_text == expected[cue_id]:
-                raise RuntimeError(f"Groq copied untranslated source cue {cue_id}")
+            if not clean_text:
+                continue
+            # Identical output is only a copy when the source is Bengali; an already
+            # English (code-switched) cue legitimately translates to itself.
+            if clean_text == expected[cue_id] and BENGALI.search(clean_text):
+                continue
             translations[cue_id] = clean_text
+        return translations
 
-        missing = expected.keys() - translations.keys()
-        if missing:
-            raise RuntimeError(f"Groq omitted {language} translations for: {sorted(missing)}")
+    def _translate_with_retry(self, cues: list[Cue], language: str) -> dict[str, str]:
+        """Retry missing cues in progressively smaller groups; never fail the whole job."""
+        translations: dict[str, str] = {}
+        pending = list(cues)
+        for group_size in (len(cues), max(1, len(cues) // 4), 1):
+            if not pending:
+                break
+            for start in range(0, len(pending), group_size):
+                group = pending[start : start + group_size]
+                try:
+                    translations.update(self._translate_batch(group, language))
+                except (APIError, json.JSONDecodeError):
+                    log.warning(
+                        "Translation request for %s %s cues failed",
+                        len(group),
+                        language,
+                    )
+            pending = [cue for cue in pending if cue.id not in translations]
+        if pending:
+            log.error(
+                "No %s translation for %s cues; QC will flag them",
+                language,
+                len(pending),
+            )
         return translations
 
     def translate(self, cues: list[Cue], language: str) -> list[Cue]:
@@ -86,7 +117,9 @@ class GroqLLMTranslator:
         translated: dict[str, str] = {}
         for start in range(0, len(cues), self.batch_size):
             translated.update(
-                self._translate_batch(cues[start : start + self.batch_size], language)
+                self._translate_with_retry(
+                    cues[start : start + self.batch_size], language
+                )
             )
 
         return [
@@ -95,7 +128,7 @@ class GroqLLMTranslator:
                 start_ms=cue.start_ms,
                 end_ms=cue.end_ms,
                 language=language,
-                text=translated[cue.id],
+                text=translated.get(cue.id, cue.text),
                 kind=cue.kind,
                 speaker_ids=cue.speaker_ids,
                 source_word_ids=cue.source_word_ids,

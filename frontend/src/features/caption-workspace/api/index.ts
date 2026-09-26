@@ -1,2 +1,2 @@
 export { workspaceKeys } from './caption.keys';
-export { useJobResultsQuery } from './caption.queries';
+export { useJobResultsQuery, useJobArtifactQuery } from './caption.queries';

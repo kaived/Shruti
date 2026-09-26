@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Cue, Language } from '../types';
 import { formatTime } from '../utils/time';
+import { Button } from '../../../shared/ui';
 
 interface CaptionsListProps {
   cues: Cue[];
@@ -131,13 +132,13 @@ export function CaptionsList({
                     </label>
                   </div>
 
-                  <div className="edit-form-actions">
-                    <button type="button" className="btn-save-cue" onClick={onSaveEdit}>
+                  <div className="edit-form-actions flex items-center gap-2 mt-2">
+                    <Button variant="primary" size="sm" onClick={onSaveEdit}>
                       Save changes
-                    </button>
-                    <button type="button" className="btn-cancel-cue" onClick={onCancelEdit}>
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={onCancelEdit}>
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </div>
               );

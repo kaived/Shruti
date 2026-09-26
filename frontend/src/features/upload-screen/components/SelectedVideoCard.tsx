@@ -1,4 +1,6 @@
+import { ArrowRight, RotateCcw } from 'lucide-react';
 import { formatDuration, formatFileSize } from '../utils/videoMeta';
+import { Button, Input } from '../../../shared/ui';
 
 interface SelectedVideoCardProps {
   file: File;
@@ -46,9 +48,15 @@ export function SelectedVideoCard({
             <h3 className="selected-filename">{file.name}</h3>
             <p className="selected-filesize">{formatFileSize(file.size)}</p>
           </div>
-          <button type="button" className="change-video-btn" onClick={onChangeVideo}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="!px-3.5 !h-8 gap-2 font-semibold text-slate-700 hover:text-slate-900 shadow-2xs"
+            icon={<RotateCcw size={13} strokeWidth={2.2} />}
+            onClick={onChangeVideo}
+          >
             Change video
-          </button>
+          </Button>
         </div>
 
         <div className="included-outputs-box">
@@ -70,37 +78,37 @@ export function SelectedVideoCard({
         </div>
 
         {uploadKeyRequired && (
-          <label className="upload-key-field">
-            <span>Demo upload key</span>
-            <input
+          <div className="upload-key-field">
+            <Input
+              label="Demo upload key"
               type="password"
               value={uploadKey}
               autoComplete="off"
               disabled={isUploading}
               placeholder="Enter the access key supplied for this demo"
               onChange={(event) => onUploadKeyChange(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter submits, same as pressing "Generate captions".
+                if (event.key === 'Enter' && !isUploading && uploadKey.trim()) {
+                  event.preventDefault();
+                  onGenerateCaptions();
+                }
+              }}
             />
-          </label>
+          </div>
         )}
 
-        <button
-          type="button"
-          className="btn-primary-generate"
+        <Button
+          variant="primary"
+          size="lg"
+          className="w-full mt-2"
+          isLoading={isUploading}
+          iconRight={<ArrowRight size={18} />}
           disabled={isUploading || (uploadKeyRequired && !uploadKey.trim())}
           onClick={onGenerateCaptions}
         >
-          {isUploading ? (
-            <>
-              <span className="spinner-sm" />
-              <span>Uploading video…</span>
-            </>
-          ) : (
-            <>
-              <span>Generate captions</span>
-              <span className="arrow-icon">→</span>
-            </>
-          )}
-        </button>
+          {isUploading ? 'Uploading video…' : 'Generate captions'}
+        </Button>
       </div>
     </div>
   );

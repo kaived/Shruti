@@ -11,19 +11,19 @@ const STEPS: { key: ScreenView; label: string; stepNumber: string; subtitle: str
     key: 'upload',
     label: 'Upload Video',
     stepNumber: '01',
-    subtitle: 'Select or drop Bengali media',
+    subtitle: 'Choose a Bengali video',
   },
   {
     key: 'processing',
-    label: 'AI Captioning & Alignment',
+    label: 'Making captions',
     stepNumber: '02',
-    subtitle: 'ASR, diarization & QC check',
+    subtitle: 'AI writes, times and checks them',
   },
   {
     key: 'workspace',
-    label: 'Caption Studio & QC Review',
+    label: 'Review & download',
     stepNumber: '03',
-    subtitle: 'Review cues & download packages',
+    subtitle: 'Check flagged lines, get your files',
   },
 ];
 
@@ -36,13 +36,15 @@ export function WorkflowBar({ currentView, filename }: WorkflowBarProps) {
           const isPassed =
             (step.key === 'upload' && currentView !== 'upload') ||
             (step.key === 'processing' && currentView === 'workspace');
+          // Reaching the workspace means the captions are ready, so the last step is complete.
+          const isDone = isPassed || (step.key === 'workspace' && currentView === 'workspace');
 
           return (
             <Fragment key={step.key}>
               <div
-                className={`workflow-step-pill ${isActive ? 'is-active' : ''} ${isPassed ? 'is-passed' : ''}`}
+                className={`workflow-step-pill ${isActive ? 'is-active' : ''} ${isDone ? 'is-passed' : ''}`}
               >
-                <div className="step-num-badge">{isPassed ? '✓' : step.stepNumber}</div>
+                <div className="step-num-badge">{isDone ? '✓' : step.stepNumber}</div>
                 <div className="step-text-col">
                   <span className="step-title">{step.label}</span>
                   <span className="step-desc">
@@ -57,12 +59,12 @@ export function WorkflowBar({ currentView, filename }: WorkflowBarProps) {
                   aria-hidden="true"
                 >
                   <svg
-                    width="14"
-                    height="14"
+                    width="16"
+                    height="16"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.5"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >

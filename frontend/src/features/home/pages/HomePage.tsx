@@ -21,7 +21,7 @@ export function HomePage({
   const activeAccess = jobs.find((item) => item.id === selectedJobId);
 
   // 1. TanStack Query: Backend capabilities & max file sizes
-  const { data: capabilities, error: capabilitiesError } = useCapabilitiesQuery();
+  const { data: capabilities } = useCapabilitiesQuery();
 
   // 2. TanStack Query: Real-time job status polling (every 1.8s while active)
   const { data: currentJob, error: jobStatusError } = useJobStatusQuery(
@@ -68,11 +68,6 @@ export function HomePage({
 
   // Handle Video Upload via TanStack Mutation
   const handleStartUpload = async (file: File, uploadKey?: string) => {
-    if (capabilitiesError) {
-      setLocalErrorMessage('Cannot reach backend API. Ensure the backend server is running.');
-      return;
-    }
-
     const maxBytes = capabilities?.max_upload_bytes ?? 500 * 1024 * 1024;
     if (file.size > maxBytes) {
       setLocalErrorMessage(
@@ -114,7 +109,15 @@ export function HomePage({
     }
   };
 
-  const handleCancelOrReset = () => {
+  const handleCancelProcessing = () => {
+    // Keep the video in "My videos" so it can be reopened later; removal is explicit (✕ in the menu).
+    onNewVideo();
+    setLocalErrorMessage('');
+    uploadMutation.reset();
+    onClearPendingFile?.();
+  };
+
+  const handleNewVideoFromWorkspace = () => {
     onNewVideo();
     setLocalErrorMessage('');
     uploadMutation.reset();
@@ -145,7 +148,7 @@ export function HomePage({
           filename={activeAccess.filename}
           uploadProgress={uploadProgress}
           onRetry={handleRetryJob}
-          onCancel={handleCancelOrReset}
+          onCancel={handleCancelProcessing}
           isRetrying={retryMutation.isPending}
         />
       )}
@@ -158,7 +161,7 @@ export function HomePage({
           accessToken={activeAccess.access_token}
           filename={activeAccess.filename}
           initialResults={currentResults}
-          onNewVideo={handleCancelOrReset}
+          onNewVideo={handleNewVideoFromWorkspace}
         />
       )}
     </div>

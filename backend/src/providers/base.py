@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.config import Settings
 from core.contracts import AudioEvidence, Cue, ShotAnalysis, Transcript
@@ -19,6 +19,10 @@ class Transcriber(Protocol):
 
 class Aligner(Protocol):
     def align(self, audio: Path, transcript: Transcript) -> Transcript: ...
+
+
+class Diarizer(Protocol):
+    def diarize(self, audio: Path, transcript: Transcript) -> Transcript: ...
 
 
 class AcousticAnalyzer(Protocol):
@@ -40,6 +44,8 @@ class Providers:
     acoustics: AcousticAnalyzer
     shots: ShotDetector
     translator: Translator
+    diarizer: Diarizer | None = None
+    normalizer: Any = None  # optional code-switch respelling: normalize(Transcript) -> Transcript
 
 
 def load_providers(settings: Settings) -> Providers:

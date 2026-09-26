@@ -8,7 +8,7 @@ import { z } from 'zod';
 function getSavedJobs(): Access[] {
   try {
     const parsed = z.array(AccessSchema).safeParse(
-      JSON.parse(sessionStorage.getItem('shruti-jobs') || '[]')
+      JSON.parse(localStorage.getItem('shruti-jobs') || '[]')
     );
     return parsed.success ? parsed.data : [];
   } catch {
@@ -16,21 +16,57 @@ function getSavedJobs(): Access[] {
   }
 }
 
+function getInitialSelectedJobId(): string | null {
+  try {
+    const savedId = localStorage.getItem('shruti-selected-job');
+    if (!savedId || savedId === 'null') return null;
+    const savedJobs = getSavedJobs();
+    return savedJobs.some((j) => j.id === savedId) ? savedId : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const [jobs, setJobs] = useState<Access[]>(getSavedJobs);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => getSavedJobs()[0]?.id ?? null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(getInitialSelectedJobId);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
-  // Sync jobs to sessionStorage
+  // Sync jobs to localStorage (may be unavailable in private modes)
   useEffect(() => {
-    sessionStorage.setItem('shruti-jobs', JSON.stringify(jobs));
+    try {
+      localStorage.setItem('shruti-jobs', JSON.stringify(jobs));
+    } catch {
+      /* storage unavailable: jobs stay in memory */
+    }
   }, [jobs]);
+
+  // Sync selectedJobId to localStorage
+  useEffect(() => {
+    try {
+      if (selectedJobId) {
+        localStorage.setItem('shruti-selected-job', selectedJobId);
+      } else {
+        localStorage.removeItem('shruti-selected-job');
+      }
+    } catch {
+      /* storage unavailable */
+    }
+  }, [selectedJobId]);
 
   const handleSelectJob = (id: string) => {
     setSelectedJobId(id);
   };
 
+  const handleRemoveJob = (id: string) => {
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    if (selectedJobId === id) {
+      setSelectedJobId(null);
+    }
+  };
+
   const handleNewVideo = () => {
+    // Keep earlier jobs in the navbar so users can return to them; only deselect.
     setSelectedJobId(null);
   };
 
@@ -46,6 +82,7 @@ export default function App() {
         jobs={jobs}
         selectedJobId={selectedJobId}
         onSelectJob={handleSelectJob}
+        onRemoveJob={handleRemoveJob}
         onNewVideo={handleNewVideo}
         onSelectFile={handleSelectFile}
       />

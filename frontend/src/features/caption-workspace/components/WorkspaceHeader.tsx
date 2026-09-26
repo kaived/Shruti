@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, ChevronDown, CircleAlert } from 'lucide-react';
 import type { Cue, Language, Results } from '../types';
 import { downloadEverythingZip, downloadTextFile, generateSrtString, generateVttString } from '../utils/exportFiles';
+import { Button } from '../../../shared/ui';
 
 interface WorkspaceHeaderProps {
   jobId: string;
@@ -21,11 +23,27 @@ export function WorkspaceHeader({
   hasDeletedCues,
   tracks,
   qc,
-  onNewVideo,
   onUndoDelete,
   onOpenQcModal,
 }: WorkspaceHeaderProps) {
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (downloadMenuRef.current && !downloadMenuRef.current.contains(event.target as Node)) {
+        setDownloadMenuOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setDownloadMenuOpen(false);
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [downloadMenuOpen]);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
 
   const handleZip = async () => {
@@ -43,14 +61,8 @@ export function WorkspaceHeader({
   return (
     <header className="workspace-header">
       <div className="header-left">
-        <button type="button" className="btn-back-home" onClick={onNewVideo} title="Upload new video">
-          <span className="brand-glyph">শ্রু</span>
-          <span className="brand-text">Shruti</span>
-        </button>
-        <span className="header-divider">/</span>
         <div className="video-title-meta">
-          <h1 className="header-filename">{filename}</h1>
-          <span className="badge-subtle">PS2 Production Review</span>
+          <h1 className="header-filename" title={filename}>{filename}</h1>
         </div>
       </div>
 
@@ -65,36 +77,44 @@ export function WorkspaceHeader({
 
       <div className="header-right-actions">
         {hasDeletedCues && (
-          <button type="button" className="btn-undo-delete" onClick={onUndoDelete}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="1 4 1 10 7 10" />
-              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-            </svg>
-            <span>Undo remove</span>
-          </button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onUndoDelete}
+            icon={
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            }
+          >
+            Bring back deleted line
+          </Button>
         )}
 
-        <div className="download-dropdown-wrapper">
-          <button
-            type="button"
-            className="btn-download-primary"
+        <div className="download-dropdown-wrapper" ref={downloadMenuRef}>
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => setDownloadMenuOpen(!downloadMenuOpen)}
+            aria-haspopup="menu"
+            aria-expanded={downloadMenuOpen}
+            iconRight={
+              <ChevronDown
+                size={15}
+                aria-hidden="true"
+                className={`transition-transform duration-200 ${downloadMenuOpen ? 'rotate-180' : ''}`}
+              />
+            }
           >
-            <span>Download files</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
+            Download files
+          </Button>
 
           {downloadMenuOpen && (
             <div className="download-menu-dropdown">
               {unreviewedCount > 0 && (
                 <div className="download-industry-warning">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
+                  <CircleAlert size={15} className="mt-px shrink-0" aria-hidden="true" />
                   <span>{unreviewedCount} unreviewed moments remain in this export.</span>
                 </div>
               )}
@@ -167,7 +187,10 @@ export function WorkspaceHeader({
                   setDownloadMenuOpen(false);
                 }}
               >
-                <div className="option-title">Inspect Quality Report in App →</div>
+                <div className="option-title inline-flex items-center gap-1.5">
+                  Inspect Quality Report in App
+                  <ArrowRight size={14} aria-hidden="true" />
+                </div>
               </button>
             </div>
           )}

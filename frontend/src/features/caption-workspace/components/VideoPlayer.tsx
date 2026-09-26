@@ -6,34 +6,33 @@ import { formatTime } from '../utils/time';
 interface VideoPlayerProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   jobId: string;
+  accessToken?: string;
   isPlaying: boolean;
   currentTimeMs: number;
   durationMs: number;
-  playbackRate: number;
+  playbackRate?: number;
   showCaptionsOverlay: boolean;
   activeCue: Cue | undefined;
   language: Language;
   onTogglePlay: () => void;
   onTimeUpdate: () => void;
-  onChangePlaybackRate: (rate: number) => void;
+  onChangePlaybackRate?: (rate: number) => void;
   onToggleCaptionsOverlay: () => void;
 }
 
-const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export function VideoPlayer({
   videoRef,
   jobId,
+  accessToken,
   isPlaying,
   currentTimeMs,
   durationMs,
-  playbackRate,
   showCaptionsOverlay,
   activeCue,
   language,
   onTogglePlay,
   onTimeUpdate,
-  onChangePlaybackRate,
   onToggleCaptionsOverlay,
 }: VideoPlayerProps) {
   return (
@@ -41,7 +40,7 @@ export function VideoPlayer({
       <div className="video-player-container">
         <video
           ref={videoRef}
-          src={getJobMediaUrl(jobId)}
+          src={getJobMediaUrl(jobId, accessToken)}
           className="main-video-element"
           onTimeUpdate={onTimeUpdate}
           onClick={onTogglePlay}
@@ -85,18 +84,6 @@ export function VideoPlayer({
         </div>
 
         <div className="controls-right">
-          <div className="rate-selector">
-            {PLAYBACK_RATES.map((rate) => (
-              <button
-                key={rate}
-                type="button"
-                className={`rate-btn ${playbackRate === rate ? 'active' : ''}`}
-                onClick={() => onChangePlaybackRate(rate)}
-              >
-                {rate}x
-              </button>
-            ))}
-          </div>
 
           <button
             type="button"

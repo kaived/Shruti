@@ -6,7 +6,7 @@ export async function fetchJobStatus(jobId: string, accessToken?: string): Promi
   return apiRequest(
     jobPath(jobId),
     JobSchema,
-    { accessToken, cache: 'no-store' },
+    { accessToken, params: { _: Date.now() } }, // cache-buster without a preflight-triggering header
     'job status'
   );
 }

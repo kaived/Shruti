@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CaptionsList } from '../components/CaptionsList';
 import { QcReportModal } from '../components/QcReportModal';
 import { RenameSpeakerModal } from '../components/RenameSpeakerModal';
@@ -25,6 +25,7 @@ const LANGUAGES: LanguageOption[] = [
 
 export function CaptionWorkspacePage({
   jobId,
+  accessToken,
   filename,
   initialResults,
   onNewVideo,
@@ -90,7 +91,7 @@ export function CaptionWorkspacePage({
   }, [activeCue?.id, autoScroll, activeTab]);
 
   // Video Control Handlers
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
@@ -98,7 +99,7 @@ export function CaptionWorkspacePage({
       void videoRef.current.play();
     }
     setIsPlaying(!isPlaying);
-  };
+  }, [isPlaying]);
 
   const seekTo = (ms: number, autoPlay = false) => {
     if (!videoRef.current) return;
@@ -270,6 +271,45 @@ export function CaptionWorkspacePage({
     )
   );
 
+  // Keyboard shortcuts advertised in the footer. A ref keeps the handlers current
+  // without re-subscribing on every playback tick.
+  const shortcutActions = useRef({ togglePlay });
+  useEffect(() => {
+    shortcutActions.current = { togglePlay };
+  }, [togglePlay]);
+
+  useEffect(() => {
+    const languages: Record<string, Language> = { '1': 'bn', '2': 'en', '3': 'hi' };
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target?.isContentEditable ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '');
+      if (typing) return;
+
+      const key = event.key.toLowerCase();
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      if (event.code === 'Space') {
+        event.preventDefault();
+        // Avoid Space also "clicking" whichever button still has focus.
+        (document.activeElement as HTMLElement | null)?.blur();
+        shortcutActions.current.togglePlay();
+      } else if (key === 'j' || key === 'l') {
+        const video = videoRef.current;
+        if (!video) return;
+        const delta = key === 'j' ? -2 : 2;
+        const limit = Number.isFinite(video.duration) ? video.duration : Infinity;
+        video.currentTime = Math.min(limit, Math.max(0, video.currentTime + delta));
+        setCurrentTimeMs(Math.round(video.currentTime * 1000));
+      } else if (languages[event.key]) {
+        setLanguage(languages[event.key]);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   return (
     <div className="caption-workspace-shell">
       <WorkspaceHeader
@@ -289,6 +329,7 @@ export function CaptionWorkspacePage({
           <VideoPlayer
             videoRef={videoRef}
             jobId={jobId}
+            accessToken={accessToken}
             isPlaying={isPlaying}
             currentTimeMs={currentTimeMs}
             durationMs={durationMs}

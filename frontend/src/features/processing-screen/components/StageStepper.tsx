@@ -10,7 +10,8 @@ export function StageStepper({ stages, activeStageIdx, isFailed }: StageStepperP
   return (
     <div className="stage-stepper">
       {stages.map((stg, idx) => {
-        const isCompleted = !isFailed && idx < activeStageIdx;
+        // Stages before the active one finished even if a later stage failed.
+        const isCompleted = idx < activeStageIdx;
         const isCurrent = !isFailed && idx === activeStageIdx;
         const isFailedStage = isFailed && idx === activeStageIdx;
 

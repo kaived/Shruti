@@ -4,6 +4,7 @@ export const LanguageSchema = z.enum(['bn', 'en', 'hi']);
 export const CueKindSchema = z.enum(['speech', 'sound']);
 export const IssueSeveritySchema = z.enum(['critical', 'high', 'medium']);
 export const JobStateSchema = z.enum([
+  'uploading',
   'uploaded',
   'queued',
   'running',

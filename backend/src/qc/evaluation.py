@@ -1,3 +1,5 @@
+import re
+
 from captions.segmentation import visible_text
 from core.contracts import (
     AudioEvidence,
@@ -9,6 +11,8 @@ from core.contracts import (
     ShotAnalysis,
     Transcript,
 )
+
+BENGALI = re.compile(r"[ঀ-৿]")
 
 
 def covered_ms(target: Interval, intervals: list[Interval]) -> int:
@@ -73,6 +77,34 @@ def evaluate(
             "Complete recognition, diarization, independent speech evidence, forced alignment "
             "and shot analysis are required.",
         )
+    for warning in transcript.recognition_warnings:
+        add(
+            warning.code,
+            "critical",
+            "bn",
+            warning.start_ms,
+            warning.end_ms,
+            "ASR produced text without usable word timing; it was withheld from captions. Listen for missed speech.",
+            evidence={"rejected_words": warning.rejected_words},
+        )
+    for span in transcript.overlapping_speech:
+        add(
+            "OVERLAPPING_SPEECH",
+            "high",
+            "bn",
+            span.start_ms,
+            span.end_ms,
+            "Multiple voices overlap; verify every spoken word and its attribution.",
+            evidence={
+                "speaker_ids": sorted(
+                    {
+                        turn.speaker_id
+                        for turn in transcript.speaker_turns
+                        if turn.start_ms < span.end_ms and turn.end_ms > span.start_ms
+                    }
+                )
+            },
+        )
     for language in ("bn", "en", "hi"):
         if language not in tracks:
             incomplete = True
@@ -91,7 +123,11 @@ def evaluate(
             seen_ids.add(cue.id)
             if previous and cue.start_ms < previous.start_ms:
                 flag("CUE_ORDER", "critical", "Cues must be ordered on the media timeline.")
-            elif previous and cue.start_ms < previous.end_ms:
+            elif (
+                previous
+                and cue.start_ms < previous.end_ms
+                and cue.kind == previous.kind  # a sound caption may coexist with dialogue
+            ):
                 flag(
                     "CUE_OVERLAP",
                     "high",
@@ -139,7 +175,19 @@ def evaluate(
                 flag("CUE_DURATION", "medium", "Cue duration is outside the provisional profile.")
             if cue.language != language:
                 flag("LANGUAGE_MISMATCH", "critical", "Cue is in the wrong output track.")
+            if language in {"en", "hi"} and cue.kind == "speech" and BENGALI.search(cue.text):
+                flag(
+                    "TRANSLATION_MISSING",
+                    "critical",
+                    "Translation failed after retries; the Bengali source is shown. Translate this cue.",
+                )
             if language == "bn" and cue.kind == "speech":
+                if speech_checked and covered_ms(cue, audio.uncertain_speech):
+                    flag(
+                        "ACOUSTIC_UNCERTAIN",
+                        "high",
+                        "Independent models disagree or are uncertain about speech in this interval.",
+                    )
                 if not cue.speaker_ids:
                     flag("SPEAKER_UNCERTAIN", "high", "Speaker attribution is unresolved.")
                 source = [words[w] for w in cue.source_word_ids if w in words]
@@ -182,6 +230,20 @@ def evaluate(
                     "Speech evidence has little transcript coverage; inspect for omitted dialogue.",
                     evidence={"coverage": round(coverage, 3)},
                 )
+        for span in audio.uncertain_speech:
+            if span.end_ms - span.start_ms < 100:
+                continue
+            coverage = covered_ms(span, list(transcript.words)) / (span.end_ms - span.start_ms)
+            if coverage < 0.4:
+                add(
+                    "POSSIBLE_MISSED_SPEECH",
+                    "high",
+                    "bn",
+                    span.start_ms,
+                    span.end_ms,
+                    "Weak independent speech evidence is not covered by text; listen for quiet dialogue.",
+                    evidence={"coverage": round(coverage, 3)},
+                )
     source_ids = {c.id for c in tracks.get("bn", []) if c.kind == "speech"}
     flagged_sources = {
         cid
@@ -207,7 +269,7 @@ def evaluate(
             if linked & flagged_sources:
                 add(
                     "SOURCE_UNCERTAINTY",
-                    "high",
+                    "medium",
                     language,
                     cue.start_ms,
                     cue.end_ms,
@@ -225,8 +287,41 @@ def evaluate(
                 "Some Bengali speech cues have no linked translation.",
                 evidence={"source_cue_ids": sorted(source_ids - represented)},
             )
+    # Documented ranking policy: severity first, then the error types most likely to be
+    # real and most harmful to a viewer (invented or missing dialogue, wrong speaker),
+    # ahead of presentation limits and issues inherited by translations.
     ranks = {"critical": 0, "high": 1, "medium": 2}
-    issues.sort(key=lambda item: (ranks[item.severity], item.start_ms, item.id))
+    priority = {
+        code: index
+        for index, code in enumerate(
+            [
+                "SUSPECTED_HALLUCINATION",
+                "TRANSLATION_MISSING",
+                "SPEECH_WITHOUT_TEXT",
+                "ASR_UNTIMED_TEXT",
+                "ASR_INVALID_WORD_TIMESTAMP",
+                "SUSPICIOUS_REPETITION",
+                "POSSIBLE_MISSED_SPEECH",
+                "OVERLAPPING_SPEECH",
+                "SPEAKER_UNCERTAIN",
+                "ACOUSTIC_UNCERTAIN",
+                "SHOT_CROSSING",
+                "CUE_OVERLAP",
+                "CPS_EXCEEDED",
+                "LINE_LIMIT_EXCEEDED",
+                "CUE_DURATION",
+                "SOURCE_UNCERTAINTY",
+            ]
+        )
+    }
+    issues.sort(
+        key=lambda item: (
+            ranks[item.severity],
+            priority.get(item.code, len(priority)),
+            item.start_ms,
+            item.id,
+        )
+    )
     return QCReport(
         status="incomplete"
         if incomplete

@@ -1,3 +1,5 @@
+import { Modal, Input, Button } from '../../../shared/ui';
+
 interface RenameSpeakerModalProps {
   isOpen: boolean;
   targetSpeakerId: string;
@@ -15,36 +17,40 @@ export function RenameSpeakerModal({
   onClose,
   onApply,
 }: RenameSpeakerModalProps) {
-  if (!isOpen) return null;
+  const footerContent = (
+    <div className="flex items-center justify-end gap-3 w-full">
+      <Button variant="secondary" size="md" onClick={onClose}>
+        Cancel
+      </Button>
+      <Button variant="primary" size="md" onClick={onApply}>
+        Apply to all captions
+      </Button>
+    </div>
+  );
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal-dialog">
-        <h3 className="modal-title">Rename Speaker Throughout Video</h3>
-        <p className="modal-desc">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="md"
+      title="Rename Speaker Throughout Video"
+      subtitle={
+        <span>
           Change all instances of <strong>"{targetSpeakerId}"</strong> across Bengali, English, and Hindi tracks.
-        </p>
-
-        <div className="modal-input-group">
-          <label>Character / Actor Name</label>
-          <input
-            type="text"
-            value={newSpeakerName}
-            onChange={(e) => onNewSpeakerNameChange(e.target.value)}
-            placeholder="e.g. অমিত / Amit"
-            autoFocus
-          />
-        </div>
-
-        <div className="modal-actions">
-          <button type="button" className="btn-modal-cancel" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="btn-modal-primary" onClick={onApply}>
-            Apply to all captions
-          </button>
-        </div>
+        </span>
+      }
+      footer={footerContent}
+    >
+      <div className="py-2">
+        <Input
+          label="Character / Actor Name"
+          type="text"
+          value={newSpeakerName}
+          onChange={(e) => onNewSpeakerNameChange(e.target.value)}
+          placeholder="e.g. অমিত / Amit"
+          autoFocus
+        />
       </div>
-    </div>
+    </Modal>
   );
 }
