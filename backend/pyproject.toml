@@ -1,0 +1,54 @@
+[project]
+name = "shruti"
+version = "0.1.0"
+description = "Bengali captioning and evidence-based quality review"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "sqlalchemy>=2.0,<2.1",
+  "psycopg[binary]>=3.2,<4",
+  "redis>=5,<7",
+  "rq>=2,<3",
+  "groq>=1.7.0",
+  "scenedetect[opencv]>=0.7.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "httpx>=0.28,<1",
+    "ruff>=0.11,<1",
+    "webvtt-py>=0.5,<1",
+    "srt>=3.5,<4",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "src/core",
+  "src/api",
+  "src/media",
+  "src/pipeline",
+  "src/providers",
+  "src/captions",
+  "src/qc",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", ".."]
+addopts = ["--basetemp=.pytest_tmp", "-p", "no:cacheprovider"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

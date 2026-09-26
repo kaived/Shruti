@@ -1,0 +1,135 @@
+# ==========================================
+# Environment & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+
+# ==========================================
+# Python & Virtual Environments
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+**/.venv/
+venv/
+**/venv/
+ENV/
+env/
+
+# Python type checking & linting
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.pyre/
+.pyright/
+
+# ==========================================
+# Node.js & Frontend
+# ==========================================
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+.output/
+.vite/
+*.tsbuildinfo
+**/*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================================
+# Runtime Data, Database & Job Artifacts
+# ==========================================
+data/
+**/data/
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ==========================================
+# Media & Audio Processing (No source video leaks)
+# ==========================================
+*.mp4
+*.mkv
+*.wav
+*.webm
+*.mov
+*.avi
+*.flv
+*.m4a
+*.mp3
+*.aac
+*.ogg
+shruti-asr-*/
+.pytest_tmp/
+**/.pytest_tmp/
+tmp/
+temp/
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+.coverage.*
+coverage/
+htmlcov/
+.hypothesis/
+
+# ==========================================
+# Operating System & IDE Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

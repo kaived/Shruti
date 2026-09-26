@@ -1,0 +1,91 @@
+name: shruti
+
+# Local integration stack for the managed production dependencies selected for
+# Shruti. Supply the variables with `docker compose --env-file <file> ...`.
+# Cloud Run services are deployed separately; Compose is used to validate the
+# same API/worker images and Neon/Upstash/Groq configuration locally.
+x-app-environment: &app-environment
+  PYTHONUNBUFFERED: "1"
+  SHRUTI_DATA_DIR: /data
+  SHRUTI_DATABASE_URL: ${SHRUTI_DATABASE_URL:-${SHRUTI_DB_URL:?Set SHRUTI_DATABASE_URL or SHRUTI_DB_URL to the Neon PostgreSQL URL}}
+  SHRUTI_REDIS_URL: ${SHRUTI_REDIS_URL:-${REDIS_URL:?Set SHRUTI_REDIS_URL or REDIS_URL to the Upstash rediss:// TCP URL}}
+  GROQ_API_KEY: ${GROQ_API_KEY:?Set GROQ_API_KEY}
+  SHRUTI_PROVIDER_FACTORY: ${SHRUTI_PROVIDER_FACTORY:-ai.factory:create_providers}
+  SHRUTI_PROVIDER_REVISION: ${SHRUTI_PROVIDER_REVISION:-groq-safety-v1}
+  SHRUTI_UPLOAD_KEY: ${SHRUTI_UPLOAD_KEY:?Set a strong SHRUTI_UPLOAD_KEY}
+  SHRUTI_COOKIE_SECURE: ${SHRUTI_COOKIE_SECURE:-true}
+  SHRUTI_ALLOWED_ORIGINS: ${SHRUTI_ALLOWED_ORIGINS:-["http://localhost:8080"]}
+  SHRUTI_MAX_UPLOAD_BYTES: ${SHRUTI_MAX_UPLOAD_BYTES:-536870912}
+  SHRUTI_MAX_DURATION_SECONDS: ${SHRUTI_MAX_DURATION_SECONDS:-7200}
+  SHRUTI_JOB_TIMEOUT_SECONDS: ${SHRUTI_JOB_TIMEOUT_SECONDS:-3600}
+  SHRUTI_MAX_ATTEMPTS: ${SHRUTI_MAX_ATTEMPTS:-3}
+
+x-app-service: &app-service
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment: *app-environment
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  volumes:
+    - media-data:/data
+
+services:
+  api:
+    <<: *app-service
+    ports:
+      - "127.0.0.1:${SHRUTI_API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/api/readiness', timeout=4)
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+
+  worker:
+    <<: *app-service
+    command: [python, -m, pipeline.worker]
+    depends_on:
+      api:
+        condition: service_healthy
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2G
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${SHRUTI_WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+volumes:
+  media-data:
